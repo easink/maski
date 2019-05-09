@@ -1,14 +1,19 @@
-module Main exposing (..)
+module Main exposing (main)
 
-import Collage exposing (Form)
-import Element
+-- import Keyboard exposing (KeyCode)
+-- import Html.Events exposing (onClick)
+-- import Browser.Events exposing (onClick)
+
+import Browser
+import Collage exposing (Collage, FillStyle, filled, shift, square, uniform)
+import Collage.Layout exposing (at, stack, topLeft)
+import Collage.Render
 import Color
 import Html exposing (Html, button, div, text)
 import Html.Attributes exposing (style)
 import Html.Events exposing (onClick)
-import Keyboard exposing (KeyCode)
-import Time
 import Random
+import Time
 
 
 boardSize : Int
@@ -76,7 +81,7 @@ turnLeft snake =
                 Right ->
                     Up
     in
-        { snake | direction = dir }
+    { snake | direction = dir }
 
 
 turnRight : Snake -> Snake
@@ -96,7 +101,7 @@ turnRight snake =
                 Right ->
                     Down
     in
-        { snake | direction = dir }
+    { snake | direction = dir }
 
 
 moveHead : Direction -> Position -> Position
@@ -118,8 +123,8 @@ moveHead dir pos =
 removeLastTail : List Position -> List Position
 removeLastTail tail =
     case List.tail (List.reverse tail) of
-        Just tail ->
-            List.reverse tail
+        Just a_tail ->
+            List.reverse a_tail
 
         Nothing ->
             []
@@ -139,16 +144,16 @@ moveSnake snake collide =
                 _ ->
                     snake.tail
     in
-        { snake | tail = updatedTail, head = moveHead snake.direction snake.head }
+    { snake | tail = updatedTail, head = moveHead snake.direction snake.head }
 
 
-background : Int -> Form
+background : Int -> Collage msg
 background a =
-    Collage.square (toFloat <| (unit a) + a)
-        |> Collage.filled (Color.blue)
+    square (toFloat <| unit a + a)
+        |> filled (uniform Color.blue)
 
 
-block : Color.Color -> Position -> Form
+block : FillStyle -> Position -> Collage msg
 block color ( x, y ) =
     let
         origin =
@@ -160,14 +165,14 @@ block color ( x, y ) =
         new_y =
             unit y - origin + y
     in
-        Collage.square (toFloat <| unit 1)
-            |> Collage.filled color
-            |> Collage.move ( toFloat <| new_x, toFloat <| new_y )
+    Collage.square (toFloat <| unit 1)
+        |> Collage.filled color
+        |> shift ( toFloat <| new_x, toFloat <| new_y )
 
 
-main : Program Never Model Msg
+main : Program () Model Msg
 main =
-    Html.program
+    Browser.element
         { init = init
         , view = view
         , update = update
@@ -185,7 +190,7 @@ type alias Snake =
 type alias Model =
     { snake : Snake
     , apple : Maybe Position
-    , time : Time.Time
+    , time : Time.Posix
     , collide : Collision
     , gameState : GameState
     }
@@ -199,18 +204,18 @@ type GameState
 
 type Msg
     = NoOp
-    | Tick Time.Time
+    | Tick Time.Posix
     | TurnLeft
     | TurnRight
     | Reset
     | NewApple ( Int, Int )
 
 
-init : ( Model, Cmd Msg )
-init =
+init : () -> ( Model, Cmd Msg )
+init flags =
     ( { snake = snakeInit
       , apple = Nothing
-      , time = 0
+      , time = Time.millisToPosix 0
       , collide = Board
       , gameState = Playing
       }
@@ -230,38 +235,42 @@ subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
         [ -- Keyboard.ups (key model)
-          Keyboard.downs (key model)
+          -- Keyboard.downs (key model)
           -- , Window.resizes Resize
-        , Time.every (100 * Time.millisecond) Tick
+          Time.every 400 Tick
         ]
 
 
-key : Model -> KeyCode -> Msg
-key model keycode =
-    case keycode of
-        37 ->
-            TurnLeft
 
-        39 ->
-            TurnRight
-
-        --        40 ->
-        --            MoveDown
-        --
-        --        38 ->
-        --            MoveUp
-        _ ->
-            NoOp
+-- key : Model -> KeyCode -> Msg
+-- key model keycode =
+--     case keycode of
+--         37 ->
+--             TurnLeft
+--
+--         39 ->
+--             TurnRight
+--
+--         --        40 ->
+--         --            MoveDown
+--         --
+--         --        38 ->
+--         --            MoveUp
+--         _ ->
+--             NoOp
 
 
 collisionState : Position -> Model -> Collision
 collisionState head model =
     if Just head == model.apple then
         Apple
+
     else if List.member head model.snake.tail then
         Tail
+
     else if not (onBoard head) then
         Border
+
     else
         Board
 
@@ -270,6 +279,7 @@ onBoard : Position -> Bool
 onBoard ( x, y ) =
     if x >= 0 && x < boardSize && y >= 0 && y < boardSize then
         True
+
     else
         False
 
@@ -306,19 +316,31 @@ update msg model =
                     generateApple model.apple
 
                 collideState =
-                    collisionState model.snake.head model
-
-                updatedSnake =
                     case model.gameState of
                         Playing ->
-                            moveSnake model.snake collideState
+                            let
+                                snake =
+                                    model.snake
+
+                                movedHead =
+                                    moveHead snake.direction snake.head
+                            in
+                            collisionState movedHead model
 
                         _ ->
-                            model.snake
+                            model.collide
+
+                movedSnake =
+                    if model.gameState == Playing then
+                        moveSnake model.snake collideState
+
+                    else
+                        model.snake
 
                 updatedApple =
                     if collideState == Apple then
                         Nothing
+
                     else
                         model.apple
 
@@ -332,19 +354,26 @@ update msg model =
 
                         _ ->
                             Playing
+
+                updatedSnake =
+                    if gameState == Playing then
+                        movedSnake
+
+                    else
+                        model.snake
             in
-                ( { model
-                    | snake = updatedSnake
-                    , apple = updatedApple
-                    , time = time
-                    , collide = collideState
-                    , gameState = gameState
-                  }
-                , newAppleCmd
-                )
+            ( { model
+                | snake = updatedSnake
+                , apple = updatedApple
+                , time = time
+                , collide = collideState
+                , gameState = gameState
+              }
+            , newAppleCmd
+            )
 
         Reset ->
-            init
+            init ()
 
         NewApple ( x, y ) ->
             ( { model | apple = Just ( x, y ) }, Cmd.none )
@@ -356,20 +385,23 @@ view model =
         apple =
             case model.apple of
                 Just pos ->
-                    [ block Color.green pos ]
+                    [ block (uniform Color.green) pos ]
 
                 Nothing ->
                     []
 
+        snake_head =
+            block (uniform Color.white) model.snake.head
+
+        snake_tail =
+            List.map (block (uniform Color.yellow)) model.snake.tail
+
         blocks =
-            background boardSize :: block Color.white model.snake.head :: List.map (block Color.yellow) model.snake.tail ++ apple
+            snake_head :: snake_tail ++ apple ++ [ background boardSize ]
     in
-        div []
-            [ blocks
-                |> Collage.collage (unit boardSize + boardSize) (unit boardSize + boardSize)
-                |> Element.toHtml
-            , button [ style [ ( "width", "300px" ), ( "height", "100px" ), ( "font-size", "150%" ) ], onClick TurnLeft ] [ text "<" ]
-            , button [ style [ ( "width", "240px" ), ( "height", "100px" ), ( "font-size", "150%" ) ], onClick Reset ] [ text <| toString <| List.length model.snake.tail ]
-            , button [ style [ ( "width", "300px" ), ( "height", "100px" ), ( "font-size", "150%" ) ], onClick TurnRight ] [ text ">" ]
-            , div [] [ text (toString model) ]
-            ]
+    div []
+        [ Collage.Render.svg (stack blocks)
+        , button [ style "width" "300px", style "height" "100px", style "font-size" "150%", onClick TurnLeft ] [ text "<" ]
+        , button [ style "width" "240px", style "height" "100px", style "font-size" "150%", onClick Reset ] [ text <| String.fromInt <| List.length model.snake.tail ]
+        , button [ style "width" "300px", style "height" "100px", style "font-size" "150%", onClick TurnRight ] [ text ">" ]
+        ]
